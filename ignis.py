@@ -1,10 +1,14 @@
-"""IGNIS thermal ion-energy explorer. Uses only the Python standard library."""
+"""IGNIS thermal ion-energy and D-T power-balance explorer. Uses only the Python standard library."""
 
 import argparse
+from dataclasses import asdict
 import csv
 import math
 from pathlib import Path
 import webbrowser
+
+from fusion import PlantConfig, evaluate_case
+from fusion_report import render_fusion_sections, write_summary_csv, write_json
 
 # Exact SI defining constants: joules per kelvin / joules per keV.
 K = 1.380649e-23 / (1000 * 1.602176634e-19)
@@ -143,8 +147,8 @@ The dashed line marks {threshold:.6g} keV when it lies within the plot.</p>
 <p>The mean ion energy is <code>3/2 kT</code>; doubling temperature doubles
  the mean energy. The density peaks at <code>E = kT/2</code>.</p>
 <p>The threshold fraction is a thermal population statistic. Fusion rates require
-relative collision energies and reaction cross sections. This model does not yet
-include reactions, compression, confinement, electron physics, or net power.</p>
+relative collision energies and reaction cross sections. The thermal panel describes individual ions; the separate D–T module uses
+a relative-velocity averaged reactivity for reaction and power calculations.</p>
 <p>For very different temperatures, the shared linear axes can visually compress
 one curve. The summary and CSV retain each distribution's values.</p>
 <p>References: <a href="https://www.nist.gov/si-redefinition/meet-constants">NIST SI constants</a>;
@@ -183,17 +187,55 @@ def main(argv=None):
     parser.add_argument("--threshold-kev", type=_nonnegative, default=10.0,
                         help="energy for the thermal tail statistic (default: 10)")
     parser.add_argument("--samples", type=int, default=1001,
-                        help="points per curve, 51–100001 (default: 1001)")
+                        help="points per thermal curve, 51–100001 (default: 1001)")
     parser.add_argument("--output", type=Path, default=Path("ignis_results.html"),
                         help="HTML output path, relative to the current directory")
-    parser.add_argument("--csv", type=Path, metavar="PATH", help="also export curve samples")
+    parser.add_argument("--csv", type=Path, metavar="PATH", help="export thermal curve samples")
     parser.add_argument("--no-browser", action="store_true", help="generate without opening a browser")
+    parser.add_argument("--thermal-only", action="store_true", help="run the original ion-energy model only")
+    group = parser.add_argument_group("D-T steady-state scenario (default mode; kT 0.2–30 keV)")
+    group.add_argument("--densities", type=_positive, nargs="+", metavar="M^-3",
+                       help="total ion densities (default: 5e19 1e20 2e20); every T × density is evaluated")
+    descriptions = {
+        "volume_m3": "uniform plasma volume (m^3)",
+        "tritium_fraction": "tritium number fraction of D+T ions, 0–1",
+        "confinement_s": "transport energy confinement time (s), excluding radiation",
+        "alpha_deposition": "fraction of alpha power heating the plasma, 0–1",
+        "heater_efficiency": "wall electricity to deposited heating efficiency, >0 to 1",
+        "thermal_efficiency": "recovered heat to electricity efficiency, 0–1",
+        "heat_recovery": "fraction of outgoing heat recovered for generation, 0–1",
+        "plant_load_mw": "other plant electrical demand (MW)",
+        "other_loss_mw": "additional total plasma loss allowance (MW)",
+    }
+    defaults = asdict(PlantConfig())
+    for name, default in defaults.items():
+        group.add_argument("--" + name.replace("_", "-"), type=_nonnegative,
+                           help=f"{descriptions[name]} (default: {default:g})")
+    group.add_argument("--fusion-csv", type=Path, metavar="PATH", help="export all case inputs and power budgets")
+    group.add_argument("--json", type=Path, metavar="PATH", help="export scenario, cases and reference comparison")
     args = parser.parse_args(argv)
+    cases, config = None, None
     try:
-        if args.csv and args.output.resolve() == args.csv.resolve():
-            raise ValueError("HTML and CSV output paths must be different")
+        paths = [p.resolve() for p in (args.output, args.csv, args.fusion_csv, args.json) if p is not None]
+        if len(paths) != len(set(paths)):
+            raise ValueError("all output paths must be different")
+        config_inputs = {name: getattr(args, name) for name in defaults if getattr(args, name) is not None}
+        if args.thermal_only and (config_inputs or args.densities or args.fusion_csv or args.json):
+            raise ValueError("D-T scenario options cannot be used with --thermal-only")
         curves = sample_curves(args.temperatures, args.samples)
         report = render_html(curves, args.threshold_kev)
+        if not args.thermal_only:
+            config = PlantConfig(**config_inputs)
+            densities = args.densities if args.densities is not None else (5e19, 1e20, 2e20)
+            cases = [evaluate_case(thermal_energy(t), density, config)
+                     for t in args.temperatures for density in densities]
+            report = report.replace("IGNIS / PROTOTYPE 02", "IGNIS / PROTOTYPE 03")
+            report = report.replace("<title>IGNIS · Thermal ion energy</title>",
+                                    "<title>IGNIS · D–T fusion and energy balance</title>")
+            report = report.replace("<h1>Temperature and ion energy</h1>",
+                                    '<h1>D–T fusion and energy balance</h1>'
+                                    '<p><a href="#fusion-model">Go to fusion power and energy budgets</a></p>')
+            report = report.replace("</body>", render_fusion_sections(cases, config) + "</body>")
     except (ValueError, OverflowError) as exc:
         parser.error(str(exc))
     try:
@@ -202,15 +244,30 @@ def main(argv=None):
         if args.csv:
             args.csv.parent.mkdir(parents=True, exist_ok=True)
             write_csv(args.csv, curves)
+        if args.fusion_csv:
+            args.fusion_csv.parent.mkdir(parents=True, exist_ok=True)
+            write_summary_csv(args.fusion_csv, cases, config)
+        if args.json:
+            args.json.parent.mkdir(parents=True, exist_ok=True)
+            write_json(args.json, cases, config)
     except OSError as exc:
         parser.exit(1, f"Cannot write results: {exc}\n")
     for temperature in args.temperatures:
         print(f"{temperature:,.9g} K: mean energy = {1.5 * thermal_energy(temperature):.6g} keV; "
               f"fraction >= {args.threshold_kev:g} keV = "
               f"{fraction_above(args.threshold_kev, temperature):.6%}")
-    print(f"HTML: {args.output.resolve()}")
-    if args.csv:
-        print(f"CSV: {args.csv.resolve()}")
+    if cases:
+        print("D-T target states; conditional steady-state estimates (power in MW):")
+        for case in cases:
+            print(f"  kT={case.temperature_kev:.5g} keV, n={case.density_m3:.4g} m^-3: "
+                  f"rate={case.reactions_s:.5g}/s, fusion={case.fusion_power_w / 1e6:.5g}, "
+                  f"heating={case.required_heating_w / 1e6:.5g}, "
+                  f"extra exhaust={case.extra_exhaust_w / 1e6:.5g}, "
+                  f"net electric={case.net_electric_w / 1e6:.5g}")
+    for label, path in (("HTML", args.output), ("Thermal CSV", args.csv),
+                        ("Fusion CSV", args.fusion_csv), ("JSON", args.json)):
+        if path:
+            print(f"{label}: {path.resolve()}")
     if not args.no_browser:
         try:
             opened = webbrowser.open(args.output.resolve().as_uri())
