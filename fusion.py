@@ -43,6 +43,24 @@ def dt_reactivity(temperature_kev):
     return 1e-6 * 1.17302e-9 * theta * math.sqrt(xi / (1.124656e6 * t**3)) * math.exp(-3 * xi)
 
 
+def dd_reactivities(temperature_kev):
+    """Return (D+D -> T+p, D+D -> He3+n) reactivities in m³/s.
+
+    Bosch–Hale branch-specific fits, 0.2–100 keV. UKAEA PROCESS labels the
+    helion-producing coefficients DD1 and the triton-producing coefficients DD2.
+    The identical-particle 1/2 factor belongs in the reaction rate, not this fit.
+    """
+    t = _number(temperature_kev, "D–D temperature (keV)", MIN_REACTIVITY_KEV,
+                MAX_REACTIVITY_KEV)
+    def branch(c1, c2, c3, c5):
+        theta = t / (1 - t * c2 / (1 + t * (c3 + t * c5)))
+        xi = (31.3970**2 / (4 * theta)) ** (1 / 3)
+        return 1e-6 * c1 * theta * math.sqrt(xi / (0.937814e6 * t**3)) * math.exp(-3 * xi)
+    triton = branch(5.65718e-12, 3.41267e-3, 1.99167e-3, 1.05060e-5)
+    helion = branch(5.43360e-12, 5.85778e-3, 7.68222e-3, -2.96400e-6)
+    return triton, helion
+
+
 @dataclass(frozen=True)
 class PlantConfig:
     """Pure, fully ionized D–T; Te=Ti. All efficiencies are assumed inputs.

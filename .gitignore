@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 ignis_results.html
 results/
+burn_results.html

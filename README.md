@@ -1,15 +1,53 @@
 # IGNIS
 
-IGNIS Prototype 03 is a reproducible **D–T fusion and steady-state energy-balance
-simulator**. It compares prescribed temperature and density scenarios, calculates
-reaction rates and gross fusion power, estimates the heating needed to maintain
-those states, and accounts for plant electrical consumption.
+IGNIS Prototype 04 models **time-dependent D–D/D–T fuel burns** and retains the
+steady-state D–T energy-balance explorer. It tracks deuterium depletion, tritium
+production and consumption, helium/proton buildup, evolving temperature, fusion
+output, and plant electrical energy.
 
 A positive calculated net output is conditional on the specified plasma,
 confinement, exhaust and conversion assumptions being achievable. This project
 is a computational model, not a demonstrated generator or a reactor-design tool.
 
-## Run
+## Time-dependent burn
+
+Python 3.10 or newer is sufficient; no third-party packages are required.
+
+```sh
+python ignis.py burn --no-browser --output results/burn_report.html \
+  --csv results/burn.csv --json results/burn.json
+```
+
+Open `results/burn_report.html`. The default is a 1-second, initially pure-deuterium
+burn at kT=10 keV, total ion density 1e20 m⁻³, fixed volume 1 m³ and transport
+confinement time 1 second, with no auxiliary heating. Both D–D branches produce
+tritium/protons and helium-3/neutrons; produced tritium can react through D–T.
+
+To explore a seeded mixture and fixed auxiliary heating:
+
+```sh
+python ignis.py burn --temperature-k 1e8 --density-m3 1e20 \
+  --tritium-fraction 0.1 --heating-mw 0.1 --duration-s 2 \
+  --output results/seeded_burn.html --json results/seeded_burn.json --no-browser
+```
+
+The report includes five trajectory plots, charge/nucleon/energy residuals,
+and a tighter integration run for numerical convergence. Temperature evolves
+without a thermostat. Runs terminate at the last valid state near either
+0.2 or 30 keV instead of extrapolating. The CLI reports the actual simulated
+interval and termination reason. Cumulative net electricity subtracts a minimum
+initial thermal startup cost; it starts negative.
+
+In the default illustrative run, fusion releases about **1.19 kJ**, temperature
+falls to **3.52 keV**, and net electricity including startup is about **−1.85 MJ**.
+These are model outputs under the stated assumptions, not measured performance.
+
+See [BURN_MODEL.md](BURN_MODEL.md) for the reaction network, transient energy
+accounting, solver tolerances, validation and limitations. Use
+`python ignis.py burn --help` for all inputs. To reproduce an export, pass the
+`config` object in its JSON file to `burn.simulate(BurnConfig(**config))`.
+
+## Steady-state and thermal modes
 
 Python 3.10 or newer is sufficient. There are no third-party dependencies.
 
@@ -47,7 +85,7 @@ python ignis.py --thermal-only --temperatures 1000 10000 --no-browser
 
 Fusion-specific options cannot be combined with `--thermal-only`.
 
-## Scenario assumptions
+## Steady-state scenario assumptions
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -167,7 +205,12 @@ The thermal tail statistic is separate from the fusion reaction calculation.
 python -m unittest discover -s tests -v
 ```
 
-The suite checks thermal normalization and moments, independent published
+The suite also checks the time-dependent network against analytic cooling and
+constant-reactivity depletion solutions, fourth-order step refinement, charge
+and nucleon conservation, transient energy closure, startup accounting,
+nonnegative inventories and model-boundary termination.
+
+The steady-state suite checks thermal normalization and moments, independent published
 reactivity benchmarks, cgs-to-SI radiation conversion, reaction energies,
 mixture/density/volume/confinement scaling, plasma and plant energy conservation,
 heating deficits and surpluses, negative electrical balances, range rejection,
@@ -188,7 +231,9 @@ power is implied by agreement of reaction rates.
 - `ignis.py`: CLI, thermal distribution and standalone report assembly.
 - `fusion.py`: Bosch–Hale reactivity, validated inputs and steady-state accounting.
 - `fusion_report.py`: density/temperature plots, budgets, reference comparison and exports.
-- `data/nrl_dt_reference.csv`: independent benchmark transcription.
+- `burn.py`: closed-volume burn integration and convergence checks.
+- `burn_cli.py` / `burn_report.py`: burn-mode CLI, trajectory reports and exports.
+- `data/nrl_dt_reference.csv` / `data/nrl_dd_reference.csv`: independent benchmarks.
 - `--csv`: thermal samples, `temperature_K`, `energy_keV`, `probability_density_per_keV`.
 - `--fusion-csv`: one row per case, including all plant inputs and numerical results.
 - `--json`: versioned scenario inputs, assumptions, all results and reference comparison.
@@ -197,20 +242,26 @@ Generated files are excluded from Git; recreate them with the commands above.
 
 ## Limits and future work
 
-The model prescribes fixed density, mixture, volume and equal ion/electron
-temperatures. It does not calculate fuel depletion, D–D production of tritium,
-alpha ash, impurity composition, compression dynamics, spatial profiles,
-magnetic or inertial confinement feasibility, startup, stability, neutron
-transport, breeding, material limits, or equipment design.
+Steady-state mode prescribes density, mixture and temperature. Burn mode evolves
+the fuel inventory and a shared temperature in a closed, fixed volume; confinement
+and electrical conversion remain assumed inputs. Burn mode retains charged
+products with instantaneous thermalization and includes only D–T and the two
+D–D branches. Helium-3 and helium-4 accumulate without further burning or removal.
 
-The repository's original concept includes a D–D-to-D–T fuel chain. That network
-is not implemented here. For clarity, the tritium-producing D–D branch is
-`D + D → T + proton`; the other main branch produces `He-3 + neutron`.
-The current module starts with a prescribed D–T mixture.
+Neither mode predicts spatial profiles, compression, achievable confinement,
+magnetic/inertial stability, fast-ion slowing, breeding, material limits or
+specific equipment performance. The burn startup cost covers the initial thermal
+inventory and heater efficiency; ionization, ramp losses and other startup loads
+would add costs. Positive numerical output alone does not establish feasibility.
 
-A future time-dependent burn model would need species inventories, ash and
-particle transport, separate ion/electron energy equations and a validated
-confinement model before assessing any specific device concept.
+The original D–D-to-D–T chain is now represented as a limited thermal reaction
+network: the tritium-producing branch is `D + D → T + proton`; the other main
+branch produces `He-3 + neutron`. This does not simulate collecting tritium and
+transferring it between separate devices.
+
+Assessing a particular device would require choosing and validating a
+confinement model, particle transport and ash removal, separate ion/electron
+energy equations, additional reaction channels, and engineering constraints.
 
 ## Sources
 
@@ -218,7 +269,7 @@ confinement model before assessing any specific device concept.
   thermal reactivity parametrization and coefficients.
 - [UKAEA PROCESS reactivity documentation](https://ukaea.github.io/PROCESS/physics-models/fusion_reactions/plasma_bosch_hale/)
   and [official implementation](https://github.com/ukaea/PROCESS/blob/main/process/models/physics/fusion_reactions.py):
-  independent check of the D–T coefficients, fit range and cm³/s-to-m³/s conversion.
+  independent check of the D–T and D–D branch coefficients, fit range and cm³/s-to-m³/s conversion.
 - [2023 NRL Plasma Formulary](https://homepage.physics.uiowa.edu/~ghowes/teach/phys4731/resources/NRL_Plasma_Formulary_2023.pdf):
   fusion products on printed p44, reference reactivities on p45, bremsstrahlung
   on p58, Eq30. PDF viewer page numbers are one greater than printed numbers.

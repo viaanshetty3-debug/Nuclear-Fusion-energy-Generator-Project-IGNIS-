@@ -4,6 +4,7 @@ import argparse
 from dataclasses import asdict
 import csv
 import math
+import sys
 from pathlib import Path
 import webbrowser
 
@@ -181,7 +182,12 @@ def _nonnegative(text):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "burn":
+        from burn_cli import main as burn_main
+        return burn_main(argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     epilog="Time-dependent fuel burn: python ignis.py burn --help")
     parser.add_argument("--temperatures", type=_positive, nargs="+", default=TEMPERATURES,
                         metavar="K", help="ion temperatures in kelvin (default: 5e7 1e8 2e8)")
     parser.add_argument("--threshold-kev", type=_nonnegative, default=10.0,
