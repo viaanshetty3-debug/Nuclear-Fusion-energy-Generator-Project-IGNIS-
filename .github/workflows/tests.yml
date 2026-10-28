@@ -22,3 +22,4 @@ jobs:
       - run: python ignis.py --no-browser --output results/report.html --csv results/curves.csv --fusion-csv results/cases.csv --json results/scenario.json
       - run: python ignis.py --thermal-only --temperatures 1000 10000 --no-browser --output results/thermal.html
       - run: python ignis.py burn --no-browser --output results/burn.html --csv results/burn.csv --json results/burn.json
+      - run: python ignis.py study --no-browser --output results/study.html --csv results/study.csv --json results/study.json

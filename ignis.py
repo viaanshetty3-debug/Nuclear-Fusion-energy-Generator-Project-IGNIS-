@@ -186,8 +186,11 @@ def main(argv=None):
     if argv and argv[0] == "burn":
         from burn_cli import main as burn_main
         return burn_main(argv[1:])
+    if argv and argv[0] == "study":
+        from study_cli import main as study_main
+        return study_main(argv[1:])
     parser = argparse.ArgumentParser(description=__doc__,
-                                     epilog="Time-dependent fuel burn: python ignis.py burn --help")
+                                     epilog="Modes: python ignis.py burn --help; python ignis.py study --help")
     parser.add_argument("--temperatures", type=_positive, nargs="+", default=TEMPERATURES,
                         metavar="K", help="ion temperatures in kelvin (default: 5e7 1e8 2e8)")
     parser.add_argument("--threshold-kev", type=_nonnegative, default=10.0,

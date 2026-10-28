@@ -1,13 +1,53 @@
 # IGNIS
 
-IGNIS Prototype 04 models **time-dependent D–D/D–T fuel burns** and retains the
-steady-state D–T energy-balance explorer. It tracks deuterium depletion, tritium
-production and consumption, helium/proton buildup, evolving temperature, fusion
-output, and plant electrical energy.
+IGNIS Prototype 05 adds a **confinement-coupled screening and break-even study**
+to the time-dependent D–D/D–T burn simulator and steady-state energy explorer.
+It compares target states using a documented tokamak reference, tracks why cases
+are excluded, and tests sensitivity to selected confinement and plant assumptions.
 
 A positive calculated net output is conditional on the specified plasma,
 confinement, exhaust and conversion assumptions being achievable. This project
 is a computational model, not a demonstrated generator or a reactor-design tool.
+
+## Confinement and break-even study
+
+```sh
+python ignis.py study --no-browser --output results/feasibility_report.html \
+  --csv results/feasibility.csv --json results/feasibility.json
+```
+
+Open `results/feasibility_report.html`. Its selectors explore the temperature/density
+map at different confinement multipliers and tritium fractions. Gray cells are
+excluded; green/pink cells show positive/nonpositive flat-top net energy after
+startup. The ranking uses eligible cases only, with explicit exclusion reasons.
+
+The default 384-case reference scan has 78 points passing the selected baseline
+screens and 9 with positive flat-top energy after startup. No individual sampled
+state remains admissible and positive at every selected uncertainty corner.
+These are conditional reference-model outputs, not an IGNIS feasibility verdict.
+
+IPB98(y,2) couples confinement to geometry, field, current, density, isotope mix
+and power. The study solves the power feedback consistently, checks heating
+capacity, a Greenwald density screen, thermal pressure, an L-H power threshold
+and a selected radiation ceiling, then refines bracketed break-even crossings.
+Both radiation conventions and selected ±20% sensitivity excursions are compared.
+
+This is a generic tokamak benchmark, not a choice of physical hardware for the
+original concept. Flat-top states assume maintained fuel inventory and are
+separate from the closed-volume burn trajectories. The limits and equations are
+in [FEASIBILITY_MODEL.md](FEASIBILITY_MODEL.md). All modes use Python 3.10+ and
+only the standard library.
+
+For a smaller custom scan:
+
+```sh
+python ignis.py study --temperatures-kev 7.5 10 12.5 --densities 7.5e19 1e20 \
+  --h-factors 1 1.1 --tritium-fractions 0.25 0.5 --pulse-duration-s 10 \
+  --output results/small_study.html --json results/small_study.json --no-browser
+```
+
+Study temperatures use **keV**; burn-mode initial temperatures use **kelvin**.
+Use `python ignis.py study --help` for the complete input list.
 
 ## Time-dependent burn
 
@@ -231,6 +271,9 @@ power is implied by agreement of reaction rates.
 - `ignis.py`: CLI, thermal distribution and standalone report assembly.
 - `fusion.py`: Bosch–Hale reactivity, validated inputs and steady-state accounting.
 - `fusion_report.py`: density/temperature plots, budgets, reference comparison and exports.
+- `confinement.py`: published reference scalings and elliptical geometry.
+- `feasibility.py`: coupled screening, sensitivity, rankings and bracketed roots.
+- `study_cli.py` / `feasibility_report.py`: filterable study maps and exports.
 - `burn.py`: closed-volume burn integration and convergence checks.
 - `burn_cli.py` / `burn_report.py`: burn-mode CLI, trajectory reports and exports.
 - `data/nrl_dt_reference.csv` / `data/nrl_dd_reference.csv`: independent benchmarks.
@@ -248,7 +291,11 @@ and electrical conversion remain assumed inputs. Burn mode retains charged
 products with instantaneous thermalization and includes only D–T and the two
 D–D branches. Helium-3 and helium-4 accumulate without further burning or removal.
 
-Neither mode predicts spatial profiles, compression, achievable confinement,
+The screening study supplies an empirical confinement comparison and selected
+operational screens. It does not verify the fit's applicability to an arbitrary
+device or make the other modes into confinement predictors.
+
+The models do not predict spatial profiles, compression, achievable confinement,
 magnetic/inertial stability, fast-ion slowing, breeding, material limits or
 specific equipment performance. The burn startup cost covers the initial thermal
 inventory and heater efficiency; ionization, ramp losses and other startup loads
@@ -259,9 +306,10 @@ network: the tritium-producing branch is `D + D → T + proton`; the other main
 branch produces `He-3 + neutron`. This does not simulate collecting tritium and
 transferring it between separate devices.
 
-Assessing a particular device would require choosing and validating a
-confinement model, particle transport and ash removal, separate ion/electron
-energy equations, additional reaction channels, and engineering constraints.
+Assessing a particular device would require validating the reference scalings
+or another confinement model for that device, particle transport and ash removal,
+separate ion/electron energy equations, additional channels and engineering constraints.
+See [FEASIBILITY_MODEL.md](FEASIBILITY_MODEL.md) for the reference-study boundaries.
 
 ## Sources
 
